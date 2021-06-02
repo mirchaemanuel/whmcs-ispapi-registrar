@@ -2288,29 +2288,31 @@ function ispapi_SaveEmailForwarding($params)
  */
 function ispapi_GetContactDetails($params)
 {
-    $values = array();
     if (isset($params["original"])) {
         $params = $params["original"];
     }
 
     $domain = $params["sld"] . "." . $params["tld"];
-    $values = array();
-    $command = array(
+    $r = Ispapi::call([
         "COMMAND" => "StatusDomain",
         "DOMAIN" => $domain
-    );
-    $response = Ispapi::call($command, $params);
+    ], $params);
 
-    if ($response["CODE"] == 200) {
-        $values["Registrant"] = ispapi_get_contact_info($response["PROPERTY"]["OWNERCONTACT"][0], $params);
-        $values["Admin"] = ispapi_get_contact_info($response["PROPERTY"]["ADMINCONTACT"][0], $params);
-        $values["Technical"] = ispapi_get_contact_info($response["PROPERTY"]["TECHCONTACT"][0], $params);
-        $values["Billing"] = ispapi_get_contact_info($response["PROPERTY"]["BILLINGCONTACT"][0], $params);
-        if (preg_match("/\.(ca|it|ch|li|se|sg)$/i", $domain)) {
-            unset($values["Registrant"]["First Name"]);
-            unset($values["Registrant"]["Last Name"]);
-            unset($values["Registrant"]["Company Name"]);
-        }
+    if ($r["CODE"] !== "200") {
+        return [
+            "error" => "Failed to load Contact Details (" . $r["CODE"] . " " . $r["DESCRIPTION"] . ")."
+        ];
+    }
+    $values = [
+        "Registrant" => ispapi_get_contact_info($r["PROPERTY"]["OWNERCONTACT"][0], $params),
+        "Admin" => ispapi_get_contact_info($r["PROPERTY"]["ADMINCONTACT"][0], $params),
+        "Technical" => ispapi_get_contact_info($r["PROPERTY"]["TECHCONTACT"][0], $params),
+        "Billing" => ispapi_get_contact_info($r["PROPERTY"]["BILLINGCONTACT"][0], $params)
+    ];
+    if (preg_match("/\.(ca|it|ch|li|se|sg)$/i", $domain)) {
+        unset($values["Registrant"]["First Name"]);
+        unset($values["Registrant"]["Last Name"]);
+        unset($values["Registrant"]["Company Name"]);
     }
     return $values;
 }
@@ -2338,9 +2340,6 @@ function ispapi_SaveContactDetails($params)
     $params = injectDomainObjectIfNecessary($params);
     $domain = $params["domainObj"]->getDomain();
 
-    global $additionaldomainfields;
-    $values = array();
-
     $status_response = Ispapi::call([
         "COMMAND" => "StatusDomain",
         "DOMAIN" => $domain
@@ -2357,6 +2356,7 @@ function ispapi_SaveContactDetails($params)
         $new_registrant = $origparams["contactdetails"]["Registrant"];
     }
 
+    global $additionaldomainfields;
     //the following conditions must be true to trigger registrant change request (IRTP)
     if (
         preg_match("/Designated Agent/", $params["IRTP"]) &&
@@ -2375,7 +2375,6 @@ function ispapi_SaveContactDetails($params)
             "X-CONFIRM-DA-NEW-REGISTRANT" => 1,
         );
 
-        //some of the AFNIC TLDs(.fr, .pm, .re, .pm, .tf, .yt) require local presence. eg: "X-FR-ACCEPT-TRUSTEE-TAC" => 1
         ispapi_query_additionalfields($params);
         ispapi_use_additionalfields($params, $command);
 
@@ -2477,9 +2476,10 @@ function ispapi_SaveContactDetails($params)
         );
         $status_response = Ispapi::call($status_command, $origparams);
 
-        if ($status_response["CODE"] != 200) {
-            $values["error"] = $status_response["DESCRIPTION"];
-            return $values;
+        if ($status_response["CODE"] !== "200") {
+            return [
+                "error" => $status_response["DESCRIPTION"]
+            ];
         }
 
         $registrant_command["COMMAND"] = "ModifyContact";
@@ -2492,12 +2492,19 @@ function ispapi_SaveContactDetails($params)
             $registrant_response = Ispapi::call($registrant_command, $origparams);
 
             if ($registrant_response["CODE"] != 200) {
-                $values["error"] = $registrant_response["DESCRIPTION"];
-                return $values;
+                return [
+                    "error" => $registrant_response["DESCRIPTION"]
+                ];
             }
             unset($command["OWNERCONTACT0"]);
         }
 
+        ispapi_query_additionalfields($params);
+        ispapi_use_additionalfields($params, $command);
+    }
+
+    if (preg_match("/\.se$/", $domain)) {
+        // X-NICSE-IDNUMBER, X-NICSE-VATID
         ispapi_query_additionalfields($params);
         ispapi_use_additionalfields($params, $command);
     }
@@ -2509,6 +2516,7 @@ function ispapi_SaveContactDetails($params)
             "error" => $response["DESCRIPTION"]
         ];
     }
+    $values = [];
     return $values;
 }
 
