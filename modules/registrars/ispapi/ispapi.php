@@ -2339,7 +2339,7 @@ function ispapi_SaveContactDetails($params)
         "COMMAND" => "StatusDomain",
         "DOMAIN" => $domain
     ], $origparams);
-    if ($status_response["CODE"] != 200) {
+    if ($status_response["CODE"] !== "200") {
         return [
             "error" => $status_response["DESCRIPTION"]
         ];
